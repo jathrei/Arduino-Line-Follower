@@ -9,8 +9,8 @@
 //uint16_t sensorValues[8]; // right -> left, 0 -> 7
 
 const int left_nslp_pin=31; // nslp ==> awake & ready for PWM
-const int left_dir_pin=29;
-const int left_pwm_pin=40;
+const int left_dir_pin=29; //direction pin, wheel going forward or backwards
+const int left_pwm_pin=40; //this is the motor, apply a certain speed to it in analog Write
 
 const int LED_RF = 41;
 
@@ -26,7 +26,7 @@ void setup() {
 
   pinMode(LED_RF, OUTPUT);
   
-//  ECE3_Init();
+//  ECE3_Init(); //i guess this initalizes the ECE.h stuff
 
 // set the data rate in bits/second for serial data transmission
   Serial.begin(9600); 
