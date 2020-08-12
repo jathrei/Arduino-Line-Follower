@@ -12,11 +12,11 @@ int starti = 0; //counts start in order to initialize prior sensor error to curr
 float prior_sensorError = 0; //previous reading of sensor error for Kd
                                 // 1000 provides slight variance but not as dramatic as 0
 
-const float minValues[8] = {619, 504, 527, 572, 494.8, 545.4, 527, 683.4};
-const float maxValues[8] = {1881,  1996,  1973,  1608,  1551.8, 1954.6, 1939.4, 1816.6};
+const float minValues[8] = {639, 524, 570, 616, 547, 570, 570, 770.4};
+const float maxValues[8] = {1861, 1976, 1930, 1531, 1602.6, 1930, 1930, 1729.6};
 float Kp = -0.034; //Kp at the start of the race
 const float Kd = -0.11; //Kd throughout race
-int baseSpeed = 65;
+int baseSpeed = 75;
 
 const int nSLPL =31; // nslp ==> awake & ready for PWM
 const int DIR_L=29; //direction pin, wheel going forward or backwards
@@ -79,16 +79,16 @@ void loop() {
     analogWrite(PWMR, motorR);
     prior_sensorError = sensorError;
     starti++;
-    if((starti>50&starti<100)||(starti>142))
+    if((starti>50&starti<110)||(starti>135))
     {
      countBlack(sensorValues); //function that checks if on black strip
      check180(); //checks for end of track, if at end executes 180, or if back at start it stops the car
-     baseSpeed=55;
+     baseSpeed=63;
      digitalWrite(LED,HIGH);
     }
     else{
       digitalWrite(LED,LOW);
-      baseSpeed=65;
+      baseSpeed=75;
     }
     blacki = 0;
     delay(50);
@@ -103,7 +103,7 @@ void countBlack(uint16_t sensorValues[8])
   {
     blackAddCounter = blackAddCounter + sensorValues[i];
   }
-  if(blackAddCounter >19000)
+  if(blackAddCounter >16000)
   {
     blacki=2;
   }
@@ -117,7 +117,7 @@ void do180()
   //starts the car going forward
   //adds slight delay
 
-  analogWrite(PWML,(.5*baseSpeed));
+  analogWrite(PWML,(.5*baseSpeed)); //slow down car first before stop to avoid dramatic stop
   analogWrite(PWMR,(.5*baseSpeed));
   delay(50);
   analogWrite(PWML, 0);
@@ -137,9 +137,9 @@ void do180()
     delay(20000);
   }
   else{
-  analogWrite(PWML,70);
-  analogWrite(PWMR,70);
-  delay(650);
+  analogWrite(PWML,80);
+  analogWrite(PWMR,80);
+  delay(640);
   analogWrite(PWML,0);
   analogWrite(PWMR,0);
   delay(50);
