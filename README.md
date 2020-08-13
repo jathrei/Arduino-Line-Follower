@@ -1,2 +1,2 @@
-# ece3
-ece3 project
+# ArduinoLineFollower
+Uses IR sensor to follow a dark lined track
