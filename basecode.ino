@@ -14,7 +14,8 @@ int button3Status = 1;
 int button4Status = 1;
 int button5Status = 1;
 
-int blacki = 0; //counts amount of times it hits the black edge
+//counting paramters
+int blacki = 0; //if on all black surface, blacki turns to 2 and kickstarts the 180 process
 int hasStopped=0; //if the car did the 180 already, stop car on next black strip
 int starti = 0; //counts time starting at start
 float prior_sensorError = 0; //previous reading of sensor error for Kp
@@ -27,6 +28,7 @@ float prior_sensorError = 0; //previous reading of sensor error for Kp
 float minValues[8] = {0,0,0,0,0,0,0,0};
 float maxValues[8] = {0,0,0,0,0,0,0,0}; 
 
+//Kp,Kd,SPEED values
 float Kp = -0.034; //Kp at the start of the race
 const float Kd = -0.11; //Kd throughout race
 int baseSpeed = 75;
@@ -34,7 +36,6 @@ int baseSpeed = 75;
 const int nSLPL =31; // nslp ==> awake & ready for PWM
 const int DIR_L=29; //direction pin, wheel going forward or backwards
 const int PWML=40; //this is the motor, apply a certain speed to it in analog Write
-
 const int nSLPR=11;
 const int DIR_R=30;
 const int PWMR=39;
@@ -79,17 +80,18 @@ void setup() {
   ECE3_Init(); //initialize ECE.h
   AutoCalibration();
   delay(3000);
-  
- 
-
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-
+    //counter to determine if LEDS on or not
     int LIGHTCOUNTER = 0;
-    ECE3_read_IR(sensorValues); //read in sensor values
-    float sensorError = sensor_fusion8421(sensorValues);//create error value
+
+    //read in sensor values, do sensorfusion (either 8-4-2-1 or 15-14-12-8, I have functions for both) 
+    //also create P and D values
+    //for the first 2 reads (starti <2), make the prior error a multiple of current error - this allows for quick adjustment
+    //create motor variable value
+    ECE3_read_IR(sensorValues); 
+    float sensorError = sensor_fusion8421(sensorValues);
     int P = Kp*sensorError;
     if(starti<2)
     {
@@ -97,39 +99,55 @@ void loop() {
     }
     int Ddiff = sensorError - prior_sensorError;
     int D = Kd*Ddiff;
-    motorV = P+D; //int motor variance -> addition of Proportional and Derivitive Corrective signals
-    if(((starti>=8)&&(starti<18))||(starti>120))//this function lowers the motorV value at the CrossRoads so the car doesn't freak out
+    motorV = P+D; 
+
+    //if the car is at the crossroads time possibilites, lower the motorV value by half
+    //this helps stabilize the car at this point, since crossroads makes it figdety 
+    if(((starti>=8)&&(starti<18))||(starti>120))
     {
       motorV = motorV/2;
       LEDSon();
       LIGHTCOUNTER = 1;
     }
-    motorR = baseSpeed - motorV; //necessary sign change to make right of track and left of track situations change the motor speed correctly
+
+    //PID math
+    motorR = baseSpeed - motorV; 
     motorL = baseSpeed + motorV;
     analogWrite(PWML, motorL);
     analogWrite(PWMR, motorR);
     prior_sensorError = sensorError;
+
+    //look to do 180 during the time intervals 2.5 sec to 5 sec and >6.75 seconds
+    //also slow the car during this time for more accurate sensor readings
     if((starti>50&starti<110)||(starti>135))
     {
-     countBlack(sensorValues); //function that checks if on black strip
-     check180(); //checks for end of track, if at end executes 180, or if back at start it stops the car
+     countBlack(sensorValues); //look for black strip
+     check180(); //if at black strip, check and do 180
      baseSpeed=63;
      LEDSon();
     }
-    else{
+    else
+    {
       baseSpeed=75;
       if(LIGHTCOUNTER == 0)
       {
         LEDSoff();
       }
     }
+
+    //reset the black line counter to 0
+    //add 1 to the time counter
     blacki = 0;
     starti++;
     delay(50);
 }
 
 
-//LED FUNCTIONS
+
+///////////////////
+////LED FUNCTIONS//
+///////////////////
+
 void LEDSon()
 {
   digitalWrite(LED, HIGH);
@@ -146,9 +164,11 @@ void LEDSoff()
 
 
 
+///////////////////////////////////
+////FUNCTIONS FOR 180 AND STOP/////
+///////////////////////////////////
 
-//FUNCTIONS FOR 180 AND STOP/////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//see if the car is on black strip
 void countBlack(uint16_t sensorValues[8])
 {
   int blackAddCounter = 0;
@@ -180,7 +200,7 @@ void do180()
   digitalWrite(DIR_R, HIGH);
   if(hasStopped>0)
   {
-    //car is complete on the track... celebrate
+    //the car has done 180 before, therefore done
     analogWrite(PWML,(.5*baseSpeed));
     analogWrite(PWMR,(.5*baseSpeed));
     delay(50);
@@ -196,13 +216,14 @@ void do180()
   analogWrite(PWML,0);
   analogWrite(PWMR,0);
   delay(50);
-  digitalWrite(DIR_R, LOW); //change car back to normal direction
-  analogWrite(PWML, (baseSpeed+2)); //speed up car to make it go straight for a few seconds
+  digitalWrite(DIR_R, LOW); 
+  //speed up car to make it go straight for a 100ms
+  analogWrite(PWML, (baseSpeed+2)); 
   analogWrite(PWMR, (baseSpeed+2));
   delay(100);
   blacki = 0; //reset black reading counter
   starti = 0; //reset position
-  hasStopped++;
+  hasStopped++; //indicate that a 180 has been done
   
   }
 }
@@ -215,7 +236,13 @@ void check180()
     }
 }
 
-//SENSOR FUSION FUCNTIONS & RUNNING/SPEED FUNCTIONS /////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////
+////SENSOR FUSION FUCNTIONS & RUNNING/SPEED FUNCTIONS ////
+/////////////////////////////////////////////////////////
+
+//sensor fusion using 8-4-2-1 weighing method
 float sensor_fusion8421(uint16_t sensorValues[8])
 {
   float floatValues[8];
@@ -233,33 +260,11 @@ float sensor_fusion8421(uint16_t sensorValues[8])
   return sensorError;
 }
 
+
+//sensor fusion using 15-14-12-8 weighing method
 float sensor_fusion1514128(uint16_t sensorValues[8])
 {
   float floatValues[8];
-  int counter= 0;
-  if(sensorValues[0] > 900)
-    {
-      for (unsigned char k = 1; k<8; k++)
-      {
-        counter = counter + sensorValues[k];
-      }
-      if(counter <5000)
-      {
-        return -1700; //max value for left of track
-      }
-    }
-  counter = 0;
-  if(sensorValues[7] > 900)
-    {
-      for (unsigned char k = 1; k<8; k++)
-      {
-        counter = counter + sensorValues[k];
-      }
-      if(counter <5600)
-      {
-        return 1800; //max value for left of track
-      }
-    }
   for (unsigned char i = 0; i < 8; i++)
   {
     floatValues[i] = sensorValues[i];
@@ -275,53 +280,71 @@ float sensor_fusion1514128(uint16_t sensorValues[8])
 }
 
 
-//AUTOCALIBRATION CODE
-//JAKE REILLY
-//ECE3
-//UID 004996061
-//big autocalibration loop, this basically reads in the bumper values.
-//when bumper 3 is pressed, calibrate white space for MIN values 
-//when bumper 4 is pressed, calibrate black space and do math for MAX values
-//when bumper 5 is pressed, exit loop to start track
-//both minValues and maxValues are already in global scope so I can manipulate them with these functions below
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////AUTOCALIBRATION CODE
+////JAKE REILLY
+////ECE3
+////UID 004996061
+////big autocalibration loop, auto calibrates MIN and MAX values when bumpers are pressed in order of 3-4-5.
+////when bumper 3 is pressed, calibrate white space for MIN values 
+////when bumper 4 is pressed, calibrate black space and do math for MAX values
+////when bumper 5 is pressed, exit loop to start track
+////both minValues and maxValues are already in global scope so I can manipulate them with these functions below
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//autocalibration function
+//waits for buttons to be pressed
+//calls CalibrateWhite() and CalibrateBlack()
 void AutoCalibration()
 {
   int LOOPER = 0;
-  while(LOOPER == 0) //check for first button press
+
+  //check for bumper 3 to be pressed
+  while(LOOPER == 0) 
   {
     button3Status = digitalRead(button3);
-    if(button3Status == 0) //when button is pressed, it returns 0
+    //if button is pressed, Calibrate
+    if(button3Status == 0) 
     {
       LEDSoff();
-      CalibrateWhite(); //find MIN values
+      CalibrateWhite(); 
       LOOPER = 1;
     }
     delay(50);
   }
   LEDSon();
+  
+  //check for bumper 4 to be pressed
   while(LOOPER == 1)
   {
     button4Status = digitalRead(button4);
+    //if button is pressed, calibrate
     if(button4Status == 0)
     {
       LEDSoff();
-      CalibrateBlack(); //find MAX values
+      CalibrateBlack(); 
       LOOPER = 2;
     }
     delay(50);
   }
+
+  //ODDCOUNTER blinks the lights ever 200 ms
+  //check for bumper 5 to be pressed
   int ODDCOUNTER = 1;
   while(LOOPER == 2) 
   {
     button5Status = digitalRead(button5);
+    //if bumper 5 is pressed, set LOOPER to 4
+    //exit function
     if(button5Status == 0)
     {
       LEDSon();
       delay(2000);
-      LOOPER = 4; //exit loop
+      LOOPER = 4; 
     }
-    if(ODDCOUNTER%4 == 0) //blink every 4 seconds
+    if(ODDCOUNTER%4 == 0) 
     {
      LEDSoff();
     }
@@ -335,7 +358,9 @@ void AutoCalibration()
 }
 
 
-void CalibrateWhite() //read in values at WhiteSpace, 40 times, and then find the average of each, set these as MIN values
+//read in whitespace 40 times
+//calibrate minValues
+void CalibrateWhite() 
 {
   delay(1000);//delay one sec car is settled after pressing button
   for(unsigned char i = 0; i<40; i++) //read in the values and add them 40 times
@@ -349,11 +374,15 @@ void CalibrateWhite() //read in values at WhiteSpace, 40 times, and then find th
   }
   for(unsigned char i = 0; i<8; i++)
   {
-    minValues[i] = (minValues[i])/(float)40; //divide by 40 to get average
+    //divide by 40 to get average
+    minValues[i] = (minValues[i])/(float)40; 
   }
-  delay(1000); //delay another second 
+  delay(1000); 
 }
 
+
+//read in blackspace 40 times
+//subtract minValues to create maxValues array
 void CalibrateBlack()
 {
   delay(1000);//delay one sec car is settled after pressing button
