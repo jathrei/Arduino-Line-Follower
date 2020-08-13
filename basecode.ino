@@ -3,17 +3,30 @@
 #include <ECE3.h>
 uint16_t sensorValues[8];
 
+//AUTOCALIBRATION PARAMETERS
+int button3 = 27;
+int button4 = 8;
+int button5 = 28;
+int LED = 41;
+int LED2 = 57;
+int LED3 = 58;
+int button3Status = 1;
+int button4Status = 1;
+int button5Status = 1;
+
 int blacki = 0; //counts amount of times it hits the black edge
 int hasStopped=0; //if the car did the 180 already, stop car on next black strip
+int starti = 0; //counts time starting at start
+float prior_sensorError = 0; //previous reading of sensor error for Kp
+                                
+//COMMENT OUT THESE VALUES IF USING AUTOCALIBRATION
+//const float minValues[8] = {639, 524, 570, 616, 547, 570, 570, 770.4};
+//const float maxValues[8] = {1861, 1976, 1930, 1531, 1602.6, 1930, 1930, 1729.6};
 
-int starti = 0; //counts start in order to initialize prior sensor error to current sensor error at start 
-                //starti also generally counts the amount of time that has passed
+//COMMENT OUT THE BELOW VALUES IF NOT USING AUTOCALIBRATION
+float minValues[8] = {0,0,0,0,0,0,0,0};
+float maxValues[8] = {0,0,0,0,0,0,0,0}; 
 
-float prior_sensorError = 0; //previous reading of sensor error for Kd
-                                // 1000 provides slight variance but not as dramatic as 0
-
-const float minValues[8] = {639, 524, 570, 616, 547, 570, 570, 770.4};
-const float maxValues[8] = {1861, 1976, 1930, 1531, 1602.6, 1930, 1930, 1729.6};
 float Kp = -0.034; //Kp at the start of the race
 const float Kd = -0.11; //Kd throughout race
 int baseSpeed = 75;
@@ -31,12 +44,10 @@ int motorR; //represents right motor signal
 int motorL; //left motor signal
 int motorV;//motor variance added or subtracted to base
 
-//debugging LED
-const int LED = 41;
+
 
 
 void setup() {
-// put your setup code here, to run once:
 //left side set-up
   pinMode(nSLPL,OUTPUT);
   pinMode(DIR_L,OUTPUT);
@@ -51,18 +62,32 @@ void setup() {
   digitalWrite(DIR_R, LOW);
   digitalWrite(nSLPR, HIGH);
 
-  pinMode(LED,OUTPUT);
-  digitalWrite(LED,LOW);
-
-  ECE3_Init(); //initialize ECE.h
+//setup comment ability
   Serial.begin(9600);  // set the data rate in bits/second for serial data transmission
   delay(3000); //Wait 3 seconds before starting
+  
+//AUTOCALIBRATION SETUP
+  pinMode(button3, INPUT_PULLUP);
+  pinMode(button4, INPUT_PULLUP);
+  pinMode(button5, INPUT_PULLUP);
+  pinMode(LED, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  LEDSon(); //turns on all LED
+ 
+
+  ECE3_Init(); //initialize ECE.h
+  AutoCalibration();
+  delay(3000);
+  
+ 
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
+    int LIGHTCOUNTER = 0;
     ECE3_read_IR(sensorValues); //read in sensor values
     float sensorError = sensor_fusion8421(sensorValues);//create error value
     int P = Kp*sensorError;
@@ -73,26 +98,54 @@ void loop() {
     int Ddiff = sensorError - prior_sensorError;
     int D = Kd*Ddiff;
     motorV = P+D; //int motor variance -> addition of Proportional and Derivitive Corrective signals
+    if(((starti>=8)&&(starti<18))||(starti>120))//this function lowers the motorV value at the CrossRoads so the car doesn't freak out
+    {
+      motorV = motorV/2;
+      LEDSon();
+      LIGHTCOUNTER = 1;
+    }
     motorR = baseSpeed - motorV; //necessary sign change to make right of track and left of track situations change the motor speed correctly
     motorL = baseSpeed + motorV;
     analogWrite(PWML, motorL);
     analogWrite(PWMR, motorR);
     prior_sensorError = sensorError;
-    starti++;
     if((starti>50&starti<110)||(starti>135))
     {
      countBlack(sensorValues); //function that checks if on black strip
      check180(); //checks for end of track, if at end executes 180, or if back at start it stops the car
      baseSpeed=63;
-     digitalWrite(LED,HIGH);
+     LEDSon();
     }
     else{
-      digitalWrite(LED,LOW);
       baseSpeed=75;
+      if(LIGHTCOUNTER == 0)
+      {
+        LEDSoff();
+      }
     }
     blacki = 0;
+    starti++;
     delay(50);
 }
+
+
+//LED FUNCTIONS
+void LEDSon()
+{
+  digitalWrite(LED, HIGH);
+  digitalWrite(LED2, HIGH);
+  digitalWrite(LED3, HIGH);
+}
+
+void LEDSoff()
+{
+  digitalWrite(LED, LOW);
+  digitalWrite(LED2,LOW);
+  digitalWrite(LED3,LOW);
+}
+
+
+
 
 //FUNCTIONS FOR 180 AND STOP/////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -221,4 +274,105 @@ float sensor_fusion1514128(uint16_t sensorValues[8])
   return sensorError;
 }
 
+
+//AUTOCALIBRATION CODE
+//JAKE REILLY
+//ECE3
+//UID 004996061
+//big autocalibration loop, this basically reads in the bumper values.
+//when bumper 3 is pressed, calibrate white space for MIN values 
+//when bumper 4 is pressed, calibrate black space and do math for MAX values
+//when bumper 5 is pressed, exit loop to start track
+//both minValues and maxValues are already in global scope so I can manipulate them with these functions below
+
+void AutoCalibration()
+{
+  int LOOPER = 0;
+  while(LOOPER == 0) //check for first button press
+  {
+    button3Status = digitalRead(button3);
+    if(button3Status == 0) //when button is pressed, it returns 0
+    {
+      LEDSoff();
+      CalibrateWhite(); //find MIN values
+      LOOPER = 1;
+    }
+    delay(50);
+  }
+  LEDSon();
+  while(LOOPER == 1)
+  {
+    button4Status = digitalRead(button4);
+    if(button4Status == 0)
+    {
+      LEDSoff();
+      CalibrateBlack(); //find MAX values
+      LOOPER = 2;
+    }
+    delay(50);
+  }
+  int ODDCOUNTER = 1;
+  while(LOOPER == 2) 
+  {
+    button5Status = digitalRead(button5);
+    if(button5Status == 0)
+    {
+      LEDSon();
+      delay(2000);
+      LOOPER = 4; //exit loop
+    }
+    if(ODDCOUNTER%4 == 0) //blink every 4 seconds
+    {
+     LEDSoff();
+    }
+    else{
+     LEDSon();
+    }
+    delay(50); 
+    ODDCOUNTER++;
+  }
+ LEDSoff();
+}
+
+
+void CalibrateWhite() //read in values at WhiteSpace, 40 times, and then find the average of each, set these as MIN values
+{
+  delay(1000);//delay one sec car is settled after pressing button
+  for(unsigned char i = 0; i<40; i++) //read in the values and add them 40 times
+  {
+    ECE3_read_IR(sensorValues);
+    for(unsigned char k = 0; k<8; k++)
+    {
+      minValues[k] = minValues[k] + sensorValues[k];
+    }
+    delay(50);
+  }
+  for(unsigned char i = 0; i<8; i++)
+  {
+    minValues[i] = (minValues[i])/(float)40; //divide by 40 to get average
+  }
+  delay(1000); //delay another second 
+}
+
+void CalibrateBlack()
+{
+  delay(1000);//delay one sec car is settled after pressing button
+  for(unsigned char i = 0; i<40; i++) //read in the values and add them 40 times
+  {
+    ECE3_read_IR(sensorValues);
+    for(unsigned char k = 0; k<8; k++)
+    {
+      maxValues[k] = maxValues[k] + sensorValues[k];
+      delay(10);//math catches up
+    }
+    delay(50);
+  }
+  for(unsigned char i = 0; i<8; i++)
+  {
+    maxValues[i] = (maxValues[i])/(float)40; //force a float value
+    delay(10); //for math to catch up believe it ot not
+    maxValues[i] = maxValues[i] - minValues[i];
+  }
+  delay(1000); //delay another second 
+}
 
